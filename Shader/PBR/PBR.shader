@@ -77,7 +77,7 @@
             {
                 v2f o = (v2f)0;
                 o.position = TransformObjectToHClip(v.vertex);
-                o.worldPos = TransformObjectToWorld(o.position);
+                o.worldPos = TransformObjectToWorld(v.vertex);
                 o.normal = normalize(TransformObjectToWorldNormal(v.normal));
                 o.tangent = normalize(TransformObjectToWorld(v.tangent));
                 o.bitangent = normalize(cross(o.normal,o.tangent)) * v.tangent.w * unity_WorldTransformParams.w;
