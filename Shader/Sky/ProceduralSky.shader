@@ -11,6 +11,7 @@
         _MoonTex("月亮贴图", 2D) = "black" {}
         [HDR]_MoonColor("月亮颜色", Color) = (1.0, 1.0, 1.0, 1.0)
         _MoonSize("月亮大小", Range(0.1,1)) = 0.5
+        _MoonMask("月亮遮罩偏移",Range(-1,1)) = 0
         
         [Space(20)]
         _StarTex("星空贴图", 2D) = "black" {}
@@ -42,10 +43,24 @@
         [HDR]_DayHorColor("地平线白天颜色", Color) = (1.0, 1.0, 1.0, 1.0)
         [HDR]_NightHorColor("地平线夜晚颜色", Color) = (0.0, 0.0, 0.0, 1.0)
 
+        [HDR]_MieColor("MieColor",Color) = (1.0, 1.0, 1.0, 1.0)
+        _MieStrength("MieStrength",Range(0,1)) = 0.5
+        _PlanetRadius("PlanetRadius",float) = 0.5
+        _AtmosphereHeight("AtmosphereHeight",Range(0,1)) = 0.5
+        _DensityScaleHeight("DensityScaleHeight",Range(0,1)) = 0.5
+        _ExtinctionM("ExtinctionM",Range(0,1)) = 0.5
+        _MieG("MieG",Range(0,1)) = 0.5
+        _ScatteringM("ScatteringM",Range(0,1)) = 0.5
     }
+
     SubShader
     {
-        Tags { "RenderType" = "Background" "RenderQueue" = "Background" "PreviewType" = "Skybox"}
+        Tags 
+        { 
+            "RenderType" = "Background"
+            "RenderQueue" = "Background"
+            "PreviewType" = "Skybox"
+        }
 
         Pass
         {
@@ -88,6 +103,7 @@
             float4 _MoonTex_ST;
             half4 _MoonColor;
             half _MoonSize;
+            half _MoonMask;
 
             half4 _StarColor;
             half _StarSpeed;
@@ -117,6 +133,15 @@
             half4 _DayHorColor;
             half4 _NightHorColor;
 
+            half4 _MieColor;
+            half _MieStrength;
+            half _PlanetRadius;
+            half _AtmosphereHeight;
+            half _DensityScaleHeight;
+            half _ExtinctionM;
+            half _MieG;
+            half _ScatteringM;
+
             uniform Matrix LToW;
             uniform float4 DayColor_0;
             uniform float4 DayColor_1;
@@ -124,6 +149,91 @@
             uniform float4 NightColor_0;
             uniform float4 NightColor_1;
             uniform float4 NightColor_2;
+            uniform float4 CloudDirection;
+            uniform float TimeSpeed;
+
+            half MiePhaseFunction(half cosAngle)
+            {
+                half g = _MieG;
+                half g2 = g * g;
+                half phase = (1.0 / (4.0 * PI)) * ((3.0 * (1.0 - g2)) / (2.0 * (2.0 + g2))) * ((1 + cosAngle * cosAngle) / (pow((1 + g2 - 2 * g*cosAngle), 3.0 / 2.0)));
+                return phase;
+            }
+
+            void ComputeOutLocalDensity(half3 position, half3 lightDir, out half localDPA, out half DPC)
+            {
+                half3 planetCenter = half3(0,-_PlanetRadius,0);
+                half height = distance(position,planetCenter) - _PlanetRadius;
+                localDPA = exp(-(height/_DensityScaleHeight));
+
+                DPC = 0;
+            }
+            half4 IntegrateInscattering(half3 rayStart,half3 rayDir,half rayLength, half3 lightDir,half sampleCount)
+            {
+                half3 stepVector = rayDir * (rayLength / sampleCount);
+                half stepSize = length(stepVector);
+
+                half scatterMie = 0;
+
+                half densityCP = 0;
+                half densityPA = 0;
+                half localDPA = 0;
+
+                half prevLocalDPA = 0;
+                half prevTransmittance = 0;
+                
+                ComputeOutLocalDensity(rayStart,lightDir, localDPA, densityCP);
+                
+                densityPA += localDPA*stepSize;
+                prevLocalDPA = localDPA;
+
+                half Transmittance = exp(-(densityCP + densityPA)*_ExtinctionM)*localDPA;
+                
+                prevTransmittance = Transmittance;
+                
+
+                for(half i = 1.0; i < sampleCount; i += 1.0)
+                {
+                    half3 P = rayStart + stepVector * i;
+                    
+                    ComputeOutLocalDensity(P,lightDir,localDPA,densityCP);
+                    densityPA += (prevLocalDPA + localDPA) * stepSize/2;
+
+                    Transmittance = exp(-(densityCP + densityPA)*_ExtinctionM)*localDPA;
+
+                    scatterMie += (prevTransmittance + Transmittance) * stepSize/2;
+                    
+                    prevTransmittance = Transmittance;
+                    prevLocalDPA = localDPA;
+                }
+
+                scatterMie = scatterMie * MiePhaseFunction(dot(rayDir,-lightDir.xyz));
+
+                half3 lightInscatter = _ScatteringM*scatterMie;
+
+                return half4(lightInscatter,1);
+            }
+            half2 RaySphereIntersection(half3 rayOrigin, half3 rayDir, half3 sphereCenter, half sphereRadius) 
+            {
+                rayOrigin -= sphereCenter;
+
+                half a = dot(rayDir, rayDir);
+                half b = 2.0 * dot(rayOrigin, rayDir);
+                half c = dot(rayOrigin, rayOrigin) - (sphereRadius * sphereRadius);
+
+                half d = b * b - 4 * a * c;
+
+                if (d < 0)
+                {
+                    return -1;
+                }
+                else
+                {
+                    d = sqrt(d);
+                    return half2(-b - d, -b + d) / (2 * a);
+                }
+            }
+
 
             v2f vert (appdata v)
             {
@@ -148,9 +258,12 @@
 
                 //---------------   月亮  -----------------
                 half3 sunUV = mul(i.uv.xyz, LToW);
-                half2 moonUV = sunUV.xy * _MoonTex_ST.xy * (1 / _MoonSize + 0.001) + _MoonTex_ST.zw;
+                half2 moonUV = sunUV.xy * _MoonTex_ST.xy * (1 / _MoonSize + 0.0001) + _MoonTex_ST.zw;
                 half4 moonTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV);
+                half4 moonMaskTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV + half2(_MoonMask,0));
                 half3 finalMoonColor = (_MoonColor.rgb * moonTex.rgb * moonTex.a) * step(0,sunUV.z);
+                half3 moonMask = max(0,1 - (moonMaskTex.a * step(0,sunUV.z)));
+                finalMoonColor *= moonMask;
                 //----------------------------------------------
 
                 //---------------   天空颜色  -----------------
@@ -169,7 +282,7 @@
                 //---------------   大气  -----------------
                 half sunMask = smoothstep(-0.4,0.4,-mul(i.uv.xyz,LToW).z) - 0.3;
                 half sunInfScaleMask = smoothstep(-0.01,0.1,_MainLightPosition.y) * smoothstep(-0.4,-0.01,-_MainLightPosition.y);
-                half3 finalSunInfColor = _SunInfColor * sunMask * _SunInfScale * sunInfScaleMask;
+                half3 finalSunInfColor = _SunInfColor.rgb * sunMask * _SunInfScale * sunInfScaleMask;
                 //----------------------------------------------
                 
                 //---------------   地平线  -----------------
@@ -180,20 +293,22 @@
                 half3 finalSkyColor = skyColor * (1 - horzionMask) + horzionColor * horzionMask * horzionStrenth;
                 //----------------------------------------------
 
-                //---------------   星空，云  -----------------
+                //---------------   星空  -----------------
                 half3 normalizeWorldPos = normalize(i.worldPos);
                 half2 skyuv = normalizeWorldPos.xz / max(0,normalizeWorldPos.y);
                 half4 starNoiseTex = SAMPLE_TEXTURE2D(_StarNoiseTex, sampler_StarNoiseTex, skyuv * _StarNoiseTex_ST.xy + (_StarNoiseTex_ST.zw - _MainLightPosition.xy * _StarSpeed * _Time.x));
                 half starNoise = step(starNoiseTex.r,0.7);
-                half4 starTex = SAMPLE_TEXTURE2D(_StarTex, sampler_StarTex, skyuv * _StarTex_ST.xy + (_StarTex_ST.zw + _MainLightPosition.xy * _StarSpeed * _Time.x));
+                half4 starTex = SAMPLE_TEXTURE2D(_StarTex, sampler_StarTex, skyuv * _StarTex_ST.xy + (_StarTex_ST.zw + half2(0, -1) * _StarSpeed * TimeSpeed * _Time.x));
                 half3 starColor = starTex.rbg * _StarColor * starNoise;
                 half skyMask = saturate(1 - smoothstep(-0.7,0,-i.uv.y));
                 half3 starMask = lerp(skyMask,0,sunNightStep);
                 starColor *= starMask * (1 - moonTex.a);
+                //----------------------------------------------
                 
-                half2 cloudMoveDir = half2(_MainLightPosition.xy * _CloudSpeed * _Time.x);
-                half4 cloudNoiseTex1 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, skyuv * _CloudNoiseTex1_ST.xy + (_CloudNoiseTex1_ST.zw - _MainLightPosition.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
-                half4 cloudNoiseTex2 = SAMPLE_TEXTURE2D(_CloudNoiseTex2, sampler_CloudNoiseTex2, skyuv * _CloudNoiseTex2_ST.xy + (_CloudNoiseTex2_ST.zw + _MainLightPosition.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
+                //---------------   云   -----------------
+                half2 cloudMoveDir = half2(CloudDirection.xy * _CloudSpeed * _Time.x);
+                half4 cloudNoiseTex1 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, skyuv * _CloudNoiseTex1_ST.xy + (_CloudNoiseTex1_ST.zw - CloudDirection.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
+                half4 cloudNoiseTex2 = SAMPLE_TEXTURE2D(_CloudNoiseTex2, sampler_CloudNoiseTex2, skyuv * _CloudNoiseTex2_ST.xy + (_CloudNoiseTex2_ST.zw + CloudDirection.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
                 half cloudNoise1 = cloudNoiseTex1.r;
                 half cloudNoise2 = cloudNoiseTex2.r;
                 
@@ -205,8 +320,29 @@
                 //星星置于云后
                 starColor *= (1 - saturate(cloudNoiseLow + cloudNoiseHight));
                 //----------------------------------------------
+
+                //--------------- 大气散射 -----------------
+                //参考代码
+                //https://zhuanlan.zhihu.com/p/237502022
+                //https://zhuanlan.zhihu.com/p/540692272
+                float3 scatteringColor = 0;
+
+                float3 rayStart = float3(0,0.6,0);
+                float3 rayDir = normalize(i.uv.xyz);
+
+                float3 planetCenter = float3(0, -_PlanetRadius, 0);
+                float2 intersection = RaySphereIntersection(rayStart,rayDir,planetCenter,_PlanetRadius + _AtmosphereHeight);
+                float rayLength = intersection.y;
+
+                intersection = RaySphereIntersection(rayStart, rayDir, planetCenter, _PlanetRadius);
+                if (intersection.x > 0)
+                    rayLength = min(rayLength, intersection.x*100);
+
+                float4 inscattering = IntegrateInscattering(rayStart, rayDir, rayLength, -light.direction.xyz, 16);
+                scatteringColor = _MieColor * _MieStrength * inscattering.rgb;
+                //---------------------------------------------
                 
-                half3 fragColor = finalSkyColor + finalSunInfColor + finalSunColor + finalMoonColor + starColor + cloudColor;
+                half3 fragColor = finalSkyColor + finalSunInfColor + finalSunColor + finalMoonColor + starColor + cloudColor + scatteringColor;
                 return half4(fragColor,1.0);
             }
             ENDHLSL
