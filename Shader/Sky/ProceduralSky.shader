@@ -20,7 +20,7 @@
         _StarSpeed("星星闪烁速度", float) = 1
 
         [Space(20)]
-        _SunInfColor("大气颜色",Color) = (1.0, 1.0, 1.0, 1.0)
+        [HDR]_SunInfColor("大气颜色",Color) = (1.0, 1.0, 1.0, 1.0)
         _SunInfScale("大气范围",Range(0, 1)) = 0.5
 
         [Space(20)]
@@ -40,17 +40,19 @@
         _NightHorWidth("地平线夜晚宽度",Range(0,1)) = 0.5
         _DayHorStrenth("地平线白天强度",Range(0,1)) = 0.5
         _NightHorStrenth("地平线夜晚强度",Range(0,1)) = 0.5
-        [HDR]_DayHorColor("地平线白天颜色", Color) = (1.0, 1.0, 1.0, 1.0)
-        [HDR]_NightHorColor("地平线夜晚颜色", Color) = (0.0, 0.0, 0.0, 1.0)
+        _DayHorColor("地平线白天颜色", Color) = (1.0, 1.0, 1.0, 1.0)
+        _NightHorColor("地平线夜晚颜色", Color) = (0.0, 0.0, 0.0, 1.0)
 
         [HDR]_MieColor("MieColor",Color) = (1.0, 1.0, 1.0, 1.0)
         _MieStrength("MieStrength",Range(0,1)) = 0.5
         _PlanetRadius("PlanetRadius",float) = 0.5
         _AtmosphereHeight("AtmosphereHeight",Range(0,1)) = 0.5
-        _DensityScaleHeight("DensityScaleHeight",Range(0,1)) = 0.5
+        _DensityScaleHeight("DensityScaleHeight",Range(0.5,1)) = 0.6
         _ExtinctionM("ExtinctionM",Range(0,1)) = 0.5
         _MieG("MieG",Range(0,1)) = 0.5
         _ScatteringM("ScatteringM",Range(0,1)) = 0.5
+
+        _AuroraColorSeed("AuroraColorSeed",Range(0,1)) = 0.5
     }
 
     SubShader
@@ -67,6 +69,8 @@
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            //开启北极光
+            #pragma shader_feature _USE_AURORA
 
             #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Color.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -141,6 +145,8 @@
             half _ExtinctionM;
             half _MieG;
             half _ScatteringM;
+
+            half _AuroraColorSeed;
 
             uniform Matrix LToW;
             uniform float4 DayColor_0;
@@ -234,6 +240,76 @@
                 }
             }
 
+            
+            // 带状极光
+            // From https://www.shadertoy.com/view/XtGGRt
+            // Author: nimitz
+            float2x2 mm2(in float a)
+            {
+                float c = cos(a);
+                float s = sin(a);
+                return float2x2(c,s,-s,c);
+            }
+            float tri(in float x)
+            {
+                return clamp(abs(frac(x)-.5),0.01,0.49);
+            }
+            float2 tri2(in float2 p)
+            {
+                return float2(tri(p.x)+tri(p.y),tri(p.y+tri(p.x)));
+            }
+
+            float triNoise2d(in float2 p, float spd)
+            {
+                float z=1.8;
+                float z2=2.5;
+                float rz = 0.;
+                p = mul(p, mm2(p.x*0.06));
+                float2 bp = p;
+                for (float i=0.; i<5.; i++ )
+                {
+                    float2 dg = tri2(bp*1.85)*.75;
+                    dg = mul(dg, mm2(_Time.y*spd));
+                    p -= dg/z2;
+
+                    bp *= 1.3;
+                    z2 *= .45;
+                    z *= .42;
+                    p *= 1.21 + (rz-1.0)*.02;
+                    
+                    rz += tri(p.x+tri(p.y))*z;
+                    p = mul(p, -float2x2(0.95534, 0.29552, -0.29552, 0.95534));
+                }
+                return clamp(1./pow(rz*29., 1.3),0.,.55);
+            }
+
+            float hash21(in float2 n)
+            { 
+                return frac(sin(dot(n, float2(12.9898, 4.1414))) * 43758.5453);
+            }
+            float4 aurora(float3 ro, float3 rd)
+            {
+                float4 col = 0;
+                float4 avgCol = 0;
+                
+                for(float i=0.;i<50.;i++)
+                {
+                    float of = 0.006*hash21(rd.xy)*smoothstep(0.,15., i);
+                    float pt = ((.8+pow(i,1.4)*.002)-ro.y)/(rd.y*2.+0.4);
+                    pt -= of;
+                    float3 bpos = ro + pt*rd;
+                    float2 p = bpos.zx;
+                    float rzt = triNoise2d(p, 0.06);
+                    float4 col2 = float4(0,0,0, rzt);
+                    col2.rgb = (sin(1.-float3(2.15,-.5, 1.2)+i * 0.043 * _AuroraColorSeed)*0.5+0.5)*rzt;
+                    avgCol =  lerp(avgCol, col2, .5);
+                    col += avgCol*exp2(-i*0.065 - 2.5)*smoothstep(0.,5., i);			
+                }		
+                col *= (clamp(rd.y*15.+.4,0.,1.));
+                return col*1.8;
+            }
+
+
 
             v2f vert (appdata v)
             {
@@ -261,9 +337,8 @@
                 half2 moonUV = sunUV.xy * _MoonTex_ST.xy * (1 / _MoonSize + 0.0001) + _MoonTex_ST.zw;
                 half4 moonTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV);
                 half4 moonMaskTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV + half2(_MoonMask,0));
-                half3 finalMoonColor = (_MoonColor.rgb * moonTex.rgb * moonTex.a) * step(0,sunUV.z);
-                half3 moonMask = max(0,1 - (moonMaskTex.a * step(0,sunUV.z)));
-                finalMoonColor *= moonMask;
+                half moonMask = max(0,1 - (moonMaskTex.a * step(0,sunUV.z))) * moonTex.a * step(0,sunUV.z);
+                half3 finalMoonColor = _MoonColor.rgb * moonTex.rgb * moonMask;
                 //----------------------------------------------
 
                 //---------------   天空颜色  -----------------
@@ -282,7 +357,7 @@
                 //---------------   大气  -----------------
                 half sunMask = smoothstep(-0.4,0.4,-mul(i.uv.xyz,LToW).z) - 0.3;
                 half sunInfScaleMask = smoothstep(-0.01,0.1,_MainLightPosition.y) * smoothstep(-0.4,-0.01,-_MainLightPosition.y);
-                half3 finalSunInfColor = _SunInfColor.rgb * sunMask * _SunInfScale * sunInfScaleMask;
+                half4 finalSunInfColor = _SunInfColor * sunMask * _SunInfScale * sunInfScaleMask;
                 //----------------------------------------------
                 
                 //---------------   地平线  -----------------
@@ -290,7 +365,7 @@
                 half horzionStrenth = lerp(_NightHorStrenth, _DayHorStrenth, sunNightStep);
                 half horzionMask = smoothstep(-horzionWidth,0,i.uv.y) * smoothstep(-horzionWidth,0,-i.uv.y);
                 half3 horzionColor = lerp(_NightHorColor, _DayHorColor, sunNightStep);
-                half3 finalSkyColor = skyColor * (1 - horzionMask) + horzionColor * horzionMask * horzionStrenth;
+                half3 finalSkyColor = lerp(skyColor, horzionColor, horzionMask * horzionStrenth);
                 //----------------------------------------------
 
                 //---------------   星空  -----------------
@@ -301,7 +376,7 @@
                 half4 starTex = SAMPLE_TEXTURE2D(_StarTex, sampler_StarTex, skyuv * _StarTex_ST.xy + (_StarTex_ST.zw + half2(0, -1) * _StarSpeed * TimeSpeed * _Time.x));
                 half3 starColor = starTex.rbg * _StarColor * starNoise;
                 half skyMask = saturate(1 - smoothstep(-0.7,0,-i.uv.y));
-                half3 starMask = lerp(skyMask,0,sunNightStep);
+                half starMask = lerp(skyMask,0,sunNightStep);
                 starColor *= starMask * (1 - moonTex.a);
                 //----------------------------------------------
                 
@@ -314,8 +389,9 @@
                 
                 half cloudNoiseLow = saturate(smoothstep(_CloudStep * cloudNoiseTex1.r + _Fuzziness, _CloudStep * cloudNoise1, cloudNoise1));
                 half cloudNoiseHight = saturate(smoothstep(_CloudStepHight * cloudNoiseTex2.r + _FuzzinessHight, _CloudStepHight * cloudNoise2, cloudNoise2));
-                half3 cloudColorLow = (_CloudColor * light.color) * cloudNoiseLow * skyMask;
-                half3 cloudColorHight = (_CloudColorHight * light.color) * cloudNoiseHight * skyMask;
+                half3 cloudColorLow = (_CloudColor ) * cloudNoiseLow * skyMask;
+                half3 cloudColorHight = (_CloudColorHight ) * cloudNoiseHight * skyMask;
+                half cloudMask = cloudNoiseLow * skyMask * cloudNoiseHight * skyMask;
                 half3 cloudColor = cloudColorLow + cloudColorHight;
                 //星星置于云后
                 starColor *= (1 - saturate(cloudNoiseLow + cloudNoiseHight));
@@ -338,14 +414,31 @@
                 if (intersection.x > 0)
                     rayLength = min(rayLength, intersection.x*100);
 
-                float4 inscattering = IntegrateInscattering(rayStart, rayDir, rayLength, -light.direction.xyz, 16);
-                scatteringColor = _MieColor * _MieStrength * inscattering.rgb;
+                half4 inscattering = IntegrateInscattering(rayStart, rayDir, rayLength, -light.direction.xyz, 16);
+                scatteringColor = _MieColor * _MieStrength * inscattering.rgb * sunNightStep;
                 //---------------------------------------------
-                
-                half3 fragColor = finalSkyColor + finalSunInfColor + finalSunColor + finalMoonColor + starColor + cloudColor + scatteringColor;
+
+                //---------------  极光  ------------------
+                // 极光消耗巨大,不适用
+                #if _USE_AURORA
+                    half3 n = normalize(i.uv);
+                    half4 auroraCol = smoothstep(0, 1.5, aurora(float3(0, 0, -6.7), n)) * skyMask;
+                #endif
+                //---------------------------------------------
+
+                half3 fragColor = finalSkyColor + starColor + scatteringColor;
+                fragColor = lerp(fragColor,finalSunInfColor,finalSunInfColor.a);
+                fragColor = lerp(fragColor,finalSunColor,sunArea * sunNightStep);
+                fragColor = lerp(fragColor,finalMoonColor,moonMask);
+                fragColor = lerp(fragColor,cloudColor,cloudMask);
+                #if _USE_AURORA
+                    fragColor = lerp(fragColor,auroraCol.rgb,auroraCol.a * (1 - sunNightStep));
+                #endif
+               
                 return half4(fragColor,1.0);
             }
             ENDHLSL
         }
     }
+    CustomEditor "ProceduralSkyGUI"
 }

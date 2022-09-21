@@ -161,7 +161,7 @@ public class ProgramSky : MonoBehaviour
 
         programSkyMat.SetVector("CloudDirection", CloudDirection);
         programSkyMat.SetFloat("TimeSpeed", TimeSpeed);
-        programSkyMat.SetFloat("_MoonMask", MoonOffset);
+        //programSkyMat.SetFloat("_MoonMask", MoonOffset);
 
         DayColorDatas.Clear();
         NightColorDatas.Clear();

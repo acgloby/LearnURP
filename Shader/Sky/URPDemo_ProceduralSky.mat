@@ -52,50 +52,51 @@ Material:
         m_Scale: {x: 2, y: 2}
         m_Offset: {x: 0, y: 0}
     m_Floats:
-    - _AtmosphereHeight: 0.7
+    - _AtmosphereHeight: 0.8
+    - _AuroraColorSeed: 1
     - _CloudBackStep: 0.875
     - _CloudFrontStep: 0.951
     - _CloudNoiseSpeed: 0.1
     - _CloudOffset: 0.005
     - _CloudSpeed: 0.5
-    - _CloudStep: 0.319
-    - _CloudStepHight: 0.1
-    - _DayHorStrenth: 0.67
-    - _DayHorWidth: 0.013
+    - _CloudStep: 0.172
+    - _CloudStepHight: 0.215
+    - _DayHorStrenth: 0.126
+    - _DayHorWidth: 0.017
     - _DayStepBottom: 0
     - _DayStepTop: 0.88
-    - _DensityScaleHeight: 0.7
-    - _ExtinctionM: 0.704
-    - _Fuzziness: 0.303
-    - _FuzzinessHight: 0.55
+    - _DensityScaleHeight: 0.8
+    - _ExtinctionM: 0.5
+    - _Fuzziness: 0.272
+    - _FuzzinessHight: 0.808
     - _HorizonHight: 1.72
     - _HorizonIntensity: 1
     - _HorizonOffset: 1
-    - _MieG: 0.6
-    - _MieStrength: 0.8
-    - _MoonMask: -1
+    - _MieG: 0.7
+    - _MieStrength: 0.5
+    - _MoonMask: 1
     - _MoonSize: 0.15
-    - _NightHorStrenth: 0.6
-    - _NightHorWidth: 0.165
-    - _PlanetRadius: 1000
-    - _ScatteringM: 0.9
-    - _StarSpeed: 0.5
+    - _NightHorStrenth: 0.2
+    - _NightHorWidth: 0.1
+    - _PlanetRadius: 500
+    - _ScatteringM: 0.8
+    - _StarSpeed: 0.2
     - _StarsCutoff: 0.161
     - _SunInfScale: 0.3
     - _SunInnerBoundary: 0.197
     - _SunOuterBoundary: 0.747
-    - _SunSize: 0.05
+    - _SunSize: 0.06
     m_Colors:
     - _CloudBackColor: {r: 0.21698111, g: 0.12588999, b: 0.12588999, a: 1}
-    - _CloudColor: {r: 1, g: 1, b: 1, a: 1}
-    - _CloudColorHight: {r: 0.44722322, g: 0.45834816, b: 0.4716981, a: 1}
+    - _CloudColor: {r: 0.5283019, g: 0.5260868, b: 0.5208259, a: 1}
+    - _CloudColorHight: {r: 0.68529725, g: 0.8301887, b: 0.8012104, a: 1}
     - _CloudFrontColor: {r: 1, g: 0.43867922, b: 0.43867922, a: 1}
-    - _DayHorColor: {r: 1.1849006, g: 1.2782028, b: 1.3290949, a: 1}
+    - _DayHorColor: {r: 0.99272245, g: 1.1036412, b: 1.1646465, a: 1}
     - _HorizonDayColor: {r: 0.12766999, g: 0.16059405, b: 0.1792453, a: 1}
     - _HorizonNightColor: {r: 0.01655392, g: 0.028407838, b: 0.03773582, a: 1}
-    - _MieColor: {r: 1.4980392, g: 0.5254902, b: 0.14901961, a: 1}
+    - _MieColor: {r: 1.4980392, g: 0.5568628, b: 0, a: 1}
     - _MoonColor: {r: 2.1185474, g: 1.8634343, b: 1.2311977, a: 1}
-    - _NightHorColor: {r: 0.090334624, g: 0.2530431, b: 0.5471698, a: 1}
+    - _NightHorColor: {r: 0.109069064, g: 0.27009022, b: 0.4056604, a: 1}
     - _StarColor: {r: 1.6941177, g: 2.0235295, b: 2.9960785, a: 1}
-    - _SunColor: {r: 2.9960785, g: 1.7254902, b: 0.15686275, a: 1}
-    - _SunInfColor: {r: 0.8867924, g: 0.4285, b: 0.10457456, a: 1}
+    - _SunColor: {r: 2.8301888, g: 1.8002583, b: 0.520648, a: 1}
+    - _SunInfColor: {r: 3.545098, g: 1.7098039, b: 0.42352942, a: 1}
