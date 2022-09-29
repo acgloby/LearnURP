@@ -68,8 +68,8 @@ public class ProgramSky : MonoBehaviour
             SkyTime += TimeSpeed * Time.deltaTime;
         }
 
-        SkyColor curColor;
-        SkyColor nextColor;
+        SkyColor curColor = default;
+        SkyColor nextColor = default;
         if (dayColorList.Count > 1)
         {
             for (int i = 0; i < dayColorList.Count; i++)
@@ -129,7 +129,6 @@ public class ProgramSky : MonoBehaviour
                     NightColorDatas.Add(curColor.Color.colorKeys[i].color);
                 }
             }
-
         }
         else if(nightColorList.Count == 1)
         {
@@ -139,13 +138,14 @@ public class ProgramSky : MonoBehaviour
                 NightColorDatas.Add(curColor.Color.colorKeys[i].color);
             }
         }
-      
+     
 
         if (sun != null)
         {
             var timeEuler = SkyTime * TIME_STEP - 90;
             sun.gameObject.transform.eulerAngles = new Vector3(timeEuler, 0, 0);
             programSkyMat.SetMatrix("LToW", sun.transform.localToWorldMatrix);
+            sun.color = GetCurLightColor();
         }
 
         for (int i = 0; i < DayColorDatas.Count; i++)
@@ -161,16 +161,58 @@ public class ProgramSky : MonoBehaviour
 
         programSkyMat.SetVector("CloudDirection", CloudDirection);
         programSkyMat.SetFloat("TimeSpeed", TimeSpeed);
+        programSkyMat.SetColor("_CloudColor",GetCurCloudColor());
         //programSkyMat.SetFloat("_MoonMask", MoonOffset);
 
         DayColorDatas.Clear();
         NightColorDatas.Clear();
     }
+
+    private Color GetCurCloudColor()
+    {
+        Color cloudColor = Color.white;
+        var data = IsNight() ? nightColorList : dayColorList;
+        var tempTime = SkyTime >= 0 && SkyTime < 5 ? 24 + SkyTime : SkyTime;
+        for (int i = 0; i < data.Count; i++)
+        {
+            if (data[i].SkyTime <= tempTime)
+            {
+                cloudColor = data[i].CloudColor;
+            }
+        }
+
+        return cloudColor;
+    }
+
+    private Color GetCurLightColor()
+    {
+        Color lightColor = Color.white;
+        var data = IsNight() ? nightColorList : dayColorList;
+        var tempTime = SkyTime >= 0 && SkyTime < 5 ? 24 + SkyTime : SkyTime;
+        for (int i = 0; i < data.Count; i++)
+        {
+            if(data[i].SkyTime <= tempTime)
+            {
+                lightColor = data[i].LightColor;
+            }
+        }
+
+        return lightColor;
+    }
+
+    private bool IsNight()
+    {
+        return SkyTime < 5 || SkyTime > 18;
+    }
+
 }
+
 
 [System.Serializable]
 public struct SkyColor
 {
     public float SkyTime;
     public Gradient Color;
+    public Color LightColor;
+    public Color CloudColor;
 }

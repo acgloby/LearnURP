@@ -25,15 +25,17 @@
 
         [Space(20)]
         _CloudColor("云颜色", Color) = (1.0, 1.0, 1.0, 1.0)
-        _CloudColorHight("高层云颜色", Color) = (1.0, 1.0, 1.0, 1.0)
         _CloudNoiseTex1("云噪声贴图1", 2D) = "white" {}
-        _CloudNoiseTex2("云噪声贴图2", 2D) = "white" {}
+        _CloudOffset("云偏移",Range(-1,1)) = 0
         _CloudSpeed("云速度", float) = 1
         _CloudNoiseSpeed("云扰动速度", float) = 1
-        _CloudStep("底层云云范围", Range(0,0.5)) = 0.5
-        _Fuzziness("底层云模糊度", Range(0.1,1)) = 0.5
-        _CloudStepHight("高层云云范围", Range(0,0.5)) = 0.5
-        _FuzzinessHight("高层云模糊度", Range(0.1,1)) = 0.5
+        _LitStrength("LitStrength" ,Range(0,1)) = 0.5
+        _BackLitStrength("BackLitStrength" ,Range(0,1)) = 0.5
+        _EdgeLitStrength("EdgeLitStrength" ,Range(0,1)) = 0.5
+        _CloudPower("云密度", Range(1,10)) = 2
+
+
+
 
         [Space(20)]
         _DayHorWidth("地平线白天宽度",Range(0,1)) = 0.5
@@ -115,20 +117,18 @@
             half4 _SunInfColor;
             half _SunInfScale;
 
+            half _CloudOffset;
             half _CloudSpeed;
             half _CloudNoiseSpeed;
             half4 _CloudColor;
-            half4 _CloudColorHight;
             TEXTURE2D(_CloudNoiseTex1);
             SAMPLER(sampler_CloudNoiseTex1);
             float4 _CloudNoiseTex1_ST;
-            TEXTURE2D(_CloudNoiseTex2);
-            SAMPLER(sampler_CloudNoiseTex2);
-            float4 _CloudNoiseTex2_ST;
-            half _CloudStep;
-            half _Fuzziness;
-            half _CloudStepHight;
-            half _FuzzinessHight;
+            half _LitStrength;
+            half _BackLitStrength;
+            half _EdgeLitStrength;
+            half _CloudPower;
+
 
             half _DayHorWidth;
             half _NightHorWidth;
@@ -325,20 +325,27 @@
                 Light light = GetMainLight();
 
                 //---------------   太阳  -----------------
-                float sunDist = distance(i.uv.xyz , _MainLightPosition.xyz);
-                float sunArea = 1 - sunDist / _SunSize;
+                half sunDist = distance(i.uv.xyz , _MainLightPosition.xyz);
+                half sunArea = 1 - sunDist / _SunSize;
                 sunArea = smoothstep(_SunInnerBoundary, _SunOuterBoundary, sunArea);
                 half3 fallSunColor = half3(_SunColor.r, _SunColor.g * 0.4, _SunColor.b * 0.4);
                 half3 finalSunColor = lerp(fallSunColor,_SunColor.rgb,smoothstep(-0.03,0.03,_MainLightPosition.y)) * sunArea;
+                //太阳光晕
+                half3 sunLight = saturate((1 - sunDist - 0.4)) * (1 - sunArea);
+                finalSunColor = lerp(finalSunColor,sunLight,sunLight.r);
                 //----------------------------------------------
 
                 //---------------   月亮  -----------------
                 half3 sunUV = mul(i.uv.xyz, LToW);
-                half2 moonUV = sunUV.xy * _MoonTex_ST.xy * (1 / _MoonSize + 0.0001) + _MoonTex_ST.zw;
+                half2 moonUV = sunUV.xy * _MoonTex_ST.xy * -1 * (1 / (_MoonSize + 0.0001)) + _MoonTex_ST.zw;
+                moonUV = moonUV * 0.5 + 0.5;
                 half4 moonTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV);
                 half4 moonMaskTex = SAMPLE_TEXTURE2D(_MoonTex, sampler_MoonTex, moonUV + half2(_MoonMask,0));
                 half moonMask = max(0,1 - (moonMaskTex.a * step(0,sunUV.z))) * moonTex.a * step(0,sunUV.z);
                 half3 finalMoonColor = _MoonColor.rgb * moonTex.rgb * moonMask;
+                half moonDist = distance(i.uv.xyz , -_MainLightPosition.xyz);
+                half3 moonLight = saturate((1 - moonDist - 0.4)) * (1 - moonMask);
+                finalMoonColor = lerp(finalMoonColor,moonLight,moonLight.r);
                 //----------------------------------------------
 
                 //---------------   天空颜色  -----------------
@@ -381,20 +388,27 @@
                 //----------------------------------------------
                 
                 //---------------   云   -----------------
+                half2 clouduv = normalizeWorldPos.xz / max(0,normalizeWorldPos.y + 0.2);
                 half2 cloudMoveDir = half2(CloudDirection.xy * _CloudSpeed * _Time.x);
-                half4 cloudNoiseTex1 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, skyuv * _CloudNoiseTex1_ST.xy + (_CloudNoiseTex1_ST.zw - CloudDirection.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
-                half4 cloudNoiseTex2 = SAMPLE_TEXTURE2D(_CloudNoiseTex2, sampler_CloudNoiseTex2, skyuv * _CloudNoiseTex2_ST.xy + (_CloudNoiseTex2_ST.zw + CloudDirection.xy * _CloudNoiseSpeed * _Time.x) + cloudMoveDir);
-                half cloudNoise1 = cloudNoiseTex1.r;
-                half cloudNoise2 = cloudNoiseTex2.r;
-                
-                half cloudNoiseLow = saturate(smoothstep(_CloudStep * cloudNoiseTex1.r + _Fuzziness, _CloudStep * cloudNoise1, cloudNoise1));
-                half cloudNoiseHight = saturate(smoothstep(_CloudStepHight * cloudNoiseTex2.r + _FuzzinessHight, _CloudStepHight * cloudNoise2, cloudNoise2));
-                half3 cloudColorLow = (_CloudColor ) * cloudNoiseLow * skyMask;
-                half3 cloudColorHight = (_CloudColorHight ) * cloudNoiseHight * skyMask;
-                half cloudMask = cloudNoiseLow * skyMask * cloudNoiseHight * skyMask;
-                half3 cloudColor = cloudColorLow + cloudColorHight;
-                //星星置于云后
-                starColor *= (1 - saturate(cloudNoiseLow + cloudNoiseHight));
+                half2 cloudOffset1 = _CloudNoiseTex1_ST.zw - CloudDirection.xy * _CloudNoiseSpeed * _Time.x + cloudMoveDir;
+                half4 cloudNoiseTex1 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, clouduv * _CloudNoiseTex1_ST.xy + cloudOffset1);
+                half4 cloudNoiseTex12 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, clouduv * _CloudNoiseTex1_ST.xy + cloudOffset1 - half2(_CloudOffset,_CloudOffset));
+                half4 cloudNoiseTex13 = SAMPLE_TEXTURE2D(_CloudNoiseTex1, sampler_CloudNoiseTex1, clouduv * _CloudNoiseTex1_ST.xy + cloudOffset1 + half2(_CloudOffset,_CloudOffset));
+
+                half stepCloud = cloudNoiseTex1.r * cloudNoiseTex12.r;
+                half cloudLight = saturate(cloudNoiseTex1.r - cloudNoiseTex12.r) * _LitStrength;
+                half cloudBackLight = saturate(cloudNoiseTex1.r - cloudNoiseTex13.r) * _BackLitStrength;
+                half cloudEdgeLight = pow(1 - cloudNoiseTex1.r,4) * _EdgeLitStrength;
+                half finalCloudLight = (cloudLight + cloudBackLight + cloudEdgeLight);
+                stepCloud = pow(stepCloud,_CloudPower);
+                finalCloudLight = pow(finalCloudLight,_CloudPower);
+                half cloudMask = skyMask * stepCloud;
+                half3 cloudColor = lerp(_CloudColor,light.color.rgb,finalCloudLight);
+              
+                //星星、月亮、太阳置于云后
+                starColor *= (1 - cloudMask);
+                finalMoonColor *= (1 - cloudMask);
+                finalSunColor *= (1 - cloudMask);
                 //----------------------------------------------
 
                 //--------------- 大气散射 -----------------
@@ -426,10 +440,10 @@
                 #endif
                 //---------------------------------------------
 
-                half3 fragColor = finalSkyColor + starColor + scatteringColor;
+                half3 fragColor = finalSkyColor + starColor + scatteringColor + finalSunColor + finalMoonColor;
                 fragColor = lerp(fragColor,finalSunInfColor,finalSunInfColor.a);
-                fragColor = lerp(fragColor,finalSunColor,sunArea * sunNightStep);
-                fragColor = lerp(fragColor,finalMoonColor,moonMask);
+                //fragColor = lerp(fragColor,finalSunColor,sunArea * sunNightStep);
+                // fragColor = lerp(fragColor,finalMoonColor,moonMask);
                 fragColor = lerp(fragColor,cloudColor,cloudMask);
                 #if _USE_AURORA
                     fragColor = lerp(fragColor,auroraCol.rgb,auroraCol.a * (1 - sunNightStep));
